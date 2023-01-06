@@ -1,0 +1,182 @@
+---
+title: "Processing of visium data"
+author: "Diego Diez"
+date: "2022-12-01"
+output: html_notebook
+---
+
+```{r setup}
+library(here)
+library(tidyverse)
+library(patchwork)
+library(Seurat)
+library(scmisc)
+library(Canek)
+
+#source("func.R")
+
+set.seed(1)
+theme_set(cowplot::theme_cowplot())
+```
+
+# Load data
+
+```{r}
+x <- list(
+  WT1 = Load10X_Spatial(here("visium/data/F4816_221017_175456_spaceranger/WT1_visium/outs"), slice="WT1"),
+  WT2 = Load10X_Spatial(here("visium/data/F4816_221017_175456_spaceranger/WT2_visium/outs"), slice="WT2"),
+  KO1 = Load10X_Spatial(here("visium/data/C2/outs"), slice="KO1"),
+  KO2 = Load10X_Spatial(here("visium/data/F4816_221017_175456_spaceranger/KO2_visium/outs"), slice="KO2")
+)
+```
+
+```{r}
+x <- lapply(names(x), function(n) {
+  x <- RenameCells(x[[n]], add.cell.id=n)
+  x$samplename <- n
+  x$background <- sub(".$", "", n)
+  x
+})
+```
+
+# Naive integration
+
+```{r}
+x <- Reduce(merge, x)
+x
+```
+
+```{r}
+x$samplename <- factor(x$samplename, levels=c("WT1", "WT2", "KO1", "KO2"))
+x$background <- factor(x$background, levels=c("WT", "KO"))
+```
+
+```{r}
+x <- NormalizeData(x, verbose=FALSE)
+x <- FindVariableFeatures(x, nfeatures=5000, verbose=FALSE)
+x <- ScaleData(x, verbose=FALSE)
+x <- RunPCA(x)
+```
+
+```{r}
+ElbowPlot(x, ndims=50)
+```
+
+```{r}
+x <- RunUMAP(x, dims=1:20)
+```
+
+```{r warning=FALSE}
+x <- FindNeighbors(x, dims=1:20)
+x <- FindClusters(x, algorithm="leiden", resolution=.6)
+```
+
+```{r}
+DimPlot(x, label=TRUE) + NoAxes() + NoLegend()
+```
+
+```{r}
+plot_coord2(x, expand="seurat_clusters", label=TRUE) & NoLegend() + NoAxes()
+```
+
+```{r}
+SpatialDimPlot(x, group.by="background", ncol=2)
+```
+
+```{r fig.width=6, fig.height=12}
+genes <- c("Slc17a7", "Slc17a6", "Slc17a8", "Gad1", "Gad2", "Sema6d", "Plxna4")
+SpatialFeaturePlot(x, genes)
+```
+
+# QC
+
+```{r}
+x <- PercentageFeatureSet(x, "mt-", col.name="percent.mt")
+```
+
+```{r}
+cc <- lapply(cc.genes.updated.2019, str_to_sentence)
+```
+
+```{r}
+x <- CellCycleScoring(x, s.features=cc$s.genes, g2m.features=cc$g2m.genes)
+```
+
+```{r}
+VlnPlot(x, c("nCount_Spatial", "nFeature_Spatial", "percent.mt", "S.Score", "G2M.Score"))
+```
+
+```{r}
+table(x$nCount_Spatial>1e5)
+table(x$nFeature_Spatial<5000)
+```
+
+```{r}
+SpatialDimPlot(x, cells.highlight=list(HighUMI=Cells(x)[x$nCount_Spatial > 1e5]), ncol=2)
+SpatialDimPlot(x, cells.highlight=list(LowFeatures=Cells(x)[x$nFeature_Spatial < 5000]), ncol=2)
+```
+
+# Canek
+
+```{r}
+x <- RunCanek(x, "samplename", nfeatures=5000, fvf.nfeatures=5000, assay="Spatial")
+x
+```
+
+```{r}
+x <- ScaleData(x, verbose=FALSE)
+x <- RunPCA(x)
+```
+
+```{r}
+ElbowPlot(x, ndims=50)
+```
+
+```{r}
+x <- RunUMAP(x, dims=1:20)
+DimPlot(x, group.by="samplename") + NoAxes()
+```
+
+```{r warning=FALSE}
+x <- FindNeighbors(x, dims=1:20)
+x <- FindClusters(x, algorithm="leiden", resolution=.6)
+```
+
+```{r}
+DimPlot(x, label=TRUE) + NoAxes() + NoLegend()
+```
+
+```{r}
+plot_coord2(x, expand="samplename", label=TRUE) & NoLegend() + NoAxes()
+```
+
+```{r}
+ggplot(x[[]], aes(samplename, fill=seurat_clusters)) +
+  geom_bar(position="fill")
+
+ggplot(x[[]], aes(seurat_clusters, fill=samplename)) +
+  geom_bar(position="fill")
+
+ggplot(x[[]], aes(seurat_clusters, fill=background)) +
+  geom_bar(position="fill")
+```
+
+```{r fig.width=6, fig.height=6}
+SpatialDimPlot(x, group.by="seurat_clusters", ncol=2, label=TRUE, label.box=TRUE, label.size=3) & NoLegend()
+```
+
+```{r}
+DefaultAssay(x) <- "Spatial"
+```
+
+# Export
+
+```{r}
+write_rds(x, here("visium/output/seurat.rds"))
+```
+
+# Session information
+
+```{r}
+sessionInfo()
+```

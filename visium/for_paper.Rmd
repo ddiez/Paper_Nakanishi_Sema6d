@@ -1,0 +1,182 @@
+---
+title: "Figures for paper: Visium"
+author: Diego Diez"
+date: "2022-12-19"
+output: html_notebook
+---
+
+
+```{r setup}
+library(here)
+library(tidyverse)
+library(patchwork)
+library(Seurat)
+library(scmisc)
+library(ComplexHeatmap)
+library(ggplotify)
+
+#source(here("func.R"))
+
+theme_set(cowplot::theme_cowplot())
+```
+
+# Load data
+
+```{r}
+x <- read_rds(here("visium/output/seurat.rds"))
+x
+```
+
+# Distribution of counts
+
+```{r}
+x[[]] |> group_by(background) |> summarize(mean=mean(nCount_Spatial), sd=sd(nCount_Spatial))
+x[[]] |> group_by(background) |> summarize(mean=mean(nFeature_Spatial), sd=sd(nFeature_Spatial))
+```
+
+
+```{r}
+x[[]] |> summarize(mean=mean(nCount_Spatial), sd=sd(nCount_Spatial))
+```
+
+
+```{r}
+x[[]] |> group_by(samplename) |> summarize(mean=mean(nCount_Spatial), sd=sd(nCount_Spatial))
+```
+
+```{r}
+x[[]] |> group_by(samplename) |> summarize(mean=mean(nFeature_Spatial), sd=sd(nFeature_Spatial))
+```
+
+```{r fig.width=4, fig.height=4}
+p1 <- lapply(levels(x$samplename), function(sample) {
+  ggplot(x[[]] |> filter(samplename == sample), aes(nFeature_Spatial)) +
+    geom_histogram(bins=30) +
+    scale_x_continuous(labels=scales::label_scientific(digits=2)) +
+    labs(title=sample)
+}) |> wrap_plots(ncol=1)
+
+p2 <- lapply(levels(x$samplename), function(sample) {
+  ggplot(x[[]] |> filter(samplename == sample), aes(nCount_Spatial)) +
+    geom_histogram(bins=30) +
+    scale_x_continuous(labels=scales::scientific_format()) +
+    labs(title=sample)
+}) |> wrap_plots(ncol=1)
+
+p1 | p2
+```
+
+```{r}
+p1 | p2
+```
+
+
+```{r fig.width=6, fig.height=4}
+p1 <- ggplot(x[[]], aes(nFeature_Spatial)) +
+  geom_histogram() +
+  scale_x_continuous(labels=scales::label_scientific(digits=2)) +
+  facet_wrap("samplename", ncol=1, shrink=FALSE) +
+  theme(strip.switch.pad.wrap=unit(20, "npc"))
+
+p2 <- ggplot(x[[]], aes(nCount_Spatial)) +
+  geom_histogram() +
+  scale_x_continuous(labels=scales::label_scientific(digits=2)) +
+  facet_wrap("samplename", ncol=1, shrink=FALSE)
+
+p1 | p2
+```
+
+```{r}
+ggsave(here("visium/figures/figS6A.pdf"), width=10, height=8)
+```
+
+# UMAP
+
+```{r fig.width=3, fig.height=3}
+DimPlot(x, group.by="seurat_clusters", label=TRUE) + NoAxes() + NoLegend() + labs(title=NULL)
+```
+
+```{r}
+ggsave(here("visium/figures/fig6A.pdf"), width=5, height=5)
+```
+
+# Clusters in tissue
+
+```{r fig.width=4, fig.height=4}
+SpatialDimPlot(x, label=TRUE, ncol=2, label.size=3, repel=TRUE) & NoLegend()
+```
+
+```{r}
+ggsave(here("visium/figures/fig6B.pdf"), width=10, height=9)
+```
+
+# Plot background overlap
+
+```{r}
+plot_coord2(x, expand="background", label=TRUE, size=.1) & NoAxes() + NoLegend()
+```
+
+```{r}
+ggsave(here("visium/figures/fig6C.pdf"), width=10, height=5)
+```
+
+# Background cluster distribution
+
+```{r}
+d <- x[[]]
+d$background <- factor(d$background, c("WT", "KO"))
+ggplot(d, aes(seurat_clusters, fill=background)) +
+  geom_bar(position="fill")
+```
+
+```{r}
+ggsave(here("visium/figures/figS6B.pdf"), width=8, height=3)
+```
+
+# Sema6d and Plxna4 expression in WT
+
+```{r}
+SpatialFeaturePlot(x, c("Sema6d", "Plxna4"), images="WT2", pt.size.factor=2)
+```
+
+```{r}
+ggsave(here("visium/figures/fig6D.pdf"), width=6, height=3)
+```
+
+# BLA and CeA
+
+```{r}
+meta <- read_rds(here("visium/output/meta_BLA-CeA.rds"))
+meta <- meta[, c("BLA", "CeA", "region")]
+x <- AddMetaData(x, meta)
+```
+
+```{r}
+p1 <- SpatialFeaturePlot(x, "BLA")
+p1
+```
+
+```{r}
+p2 <- SpatialFeaturePlot(x, "CeA") & labs(title=NULL)
+p2
+```
+
+```{r}
+p3 <- SpatialDimPlot(x, "region", cols=c("Other"="lightgrey", "BLA"="violetred", "CeA"="limegreen")) & labs(title=NULL) & theme(legend.position="top")
+p3
+```
+
+```{r fig.width=6, fig.height=6}
+p1 / p2 / p3
+```
+
+```{r}
+ggsave(here("visium/figures/fig6L.pdf"), width=12, height=12)
+```
+
+# Session information
+
+```{r}
+sessionInfo()
+```
+

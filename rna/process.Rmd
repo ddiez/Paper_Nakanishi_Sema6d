@@ -1,0 +1,300 @@
+---
+title: Process WT and KO samples"
+author: "Diego Diez"
+date: "2022-11-07"
+output: html_notebook
+---
+
+```{r setup}
+library(here)
+library(tidyverse)
+library(patchwork)
+library(Seurat)
+library(scmisc)
+library(Canek)
+
+theme_set(cowplot::theme_cowplot())
+
+PerVarPlot <- function(x, reduction="pca") {
+  red <- Reductions(x, reduction)
+  d <- data.frame(sd=red@stdev)
+  d$PC <- seq_along(d$sd)
+  d$var <- d$sd^2
+  d$percumsumvar <- 100 * cumsum(d$var)/sum(d$var)
+  ggplot(d, aes(PC, percumsumvar)) +
+    geom_point() +
+    theme(panel.grid=element_line(linewidth=.1, color="lightgrey"))
+
+}
+
+set.seed(1)
+```
+
+```{r}
+x <- list(
+ "WT" = Read10X_h5(here("rna/data/F4663_220920_151931_cellranger/WT_5DE/outs/filtered_feature_bc_matrix.h5")),
+ "KO" = Read10X_h5(here("rna/data/F4663_220920_151931_cellranger/KO_5DE/outs/filtered_feature_bc_matrix.h5"))
+)
+```
+
+```{r}
+colnames(x[["WT"]]) <- paste0("WT_", colnames(x[["WT"]]))
+colnames(x[["KO"]]) <- paste0("KO_", colnames(x[["KO"]]))
+```
+
+```{r}
+x <- lapply(x, CreateSeuratObject)
+x
+```
+
+```{r}
+x$WT$background <- "WT"
+x$KO$background <- "KO"
+```
+
+# Naive integration
+
+```{r}
+x <- Reduce(merge, x)
+x
+```
+
+# Filter genes
+
+```{r}
+m <- GetAssayData(x)
+
+# Filter genes
+genes_n <- rowSums(m > 0)
+# We require a feature to be non-zero in at least 10 cells.
+genes_ok <- genes_n > 10
+table(genes_ok)
+```
+
+```{r}
+x <- x[genes_ok, ]
+x
+```
+
+```{r}
+x <- NormalizeData(x, verbose=FALSE)
+x <- FindVariableFeatures(x, nfeatures=5000, verbose=FALSE)
+VariableFeaturePlot(x)
+```
+
+```{r}
+x <- ScaleData(x, verbose=FALSE)
+x <- RunPCA(x)
+```
+
+```{r}
+ElbowPlot(x, ndims=50)
+PerVarPlot(x)
+```
+
+```{r warning=FALSE}
+x <- FindNeighbors(x, dims=1:20)
+x <- FindClusters(x, algorithm="leiden", resolution=.6)
+```
+
+```{r}
+x <- RunUMAP(x, dims=1:20)
+DimPlot(x, label=TRUE) + NoLegend() + NoAxes()
+```
+
+```{r}
+plot_coord2(x, expand="background", label=TRUE) & NoAxes() + NoLegend()
+```
+
+```{r}
+ggplot(x[[]], aes(background, fill=seurat_clusters)) +
+  geom_bar(position="fill")
+```
+
+```{r}
+ggplot(x[[]], aes(seurat_clusters, fill=background)) +
+  geom_bar(position="fill")
+```
+
+```{r}
+x[[]] |> count(background, seurat_clusters) |> 
+  pivot_wider(names_from="background", values_from="n", values_fill=0) |> 
+  mutate(total=KO+WT) |> 
+  mutate(per_WT=100*WT/total, per_KO=100*KO/total)
+```
+
+```{r fig.width=7, fig.height=3}
+markers <- list(
+  "Glia" = c("Vim", "Atp1a2", "Fam107a", "Slc1a3", "Ptn"),
+  "Neuron" = c("Neurod6", "Slc17a7", "Slc17a6", "Slc17a8"),
+  "Interneuron" = c("Gad1", "Gad2", "Dlx1", "Dlx5"),
+  "OPC" = c("Cspg4"),
+  "Oligo" = c("Olig1", "Olig2"),
+  "Astro" = c("Acsbg1", "Aldh1l1", "Sox9"),
+  "Endo" = c("Flt1"),
+  "SMC" = c("Tagln", "Acta2", "Tpm2"),
+  "Mg" = c("C1qa", "C1qb"),
+  "Other" = c("Pvalb", "Calb2", "Sst", "Vip", "Reln", "Lamp5", "Serpinf1", "Sncg", "Nos1", "Cck", "Htr3a"),
+  "Pro" = c("Mki67"),
+  "RBC" = c("Hba-a1", "Hba-a2")
+)
+DotPlot(x, "RNA", markers, cluster.idents=TRUE) + RotatedAxis()
+```
+
+## Export
+
+```{r}
+write_rds(x, here("rna/output/seurat_raw.rds"))
+```
+
+# QC
+
+```{r}
+x <- PercentageFeatureSet(x, "mt-", col.name="percent.mt")
+```
+
+```{r}
+cc <- lapply(cc.genes.updated.2019, str_to_sentence)
+cc
+```
+
+```{r}
+x <- CellCycleScoring(x, cc$s.genes, cc$g2m.genes)
+```
+
+```{r}
+VlnPlot(x, c("nCount_RNA", "nFeature_RNA", "percent.mt", "S.Score", "G2M.Score"), stack=TRUE, flip=TRUE) + NoLegend()
+```
+
+```{r}
+ggplot(x[[]] |> count(seurat_clusters), aes(seurat_clusters, n)) +
+  geom_col()
+```
+
+```{r fig.width=8, fig.height=6}
+plot_coord2(x, expand="seurat_clusters") & NoLegend() + NoAxes()
+```
+
+```{r}
+FeaturePlot(x, "nCount_RNA", label=TRUE, order=TRUE) + NoAxes()
+DimPlot(x, cells.highlight=list(Doublets=Cells(x)[x$nCount_RNA>30000]), label=TRUE) + NoAxes()
+DimPlot(x, cells.highlight=list(Doublets=Cells(x)[x$nFeature_RNA>6000]), label=TRUE) + NoAxes()
+ggplot(x[[]], aes(nCount_RNA)) + geom_histogram()
+```
+
+```{r}
+x[[]] |> mutate(doublet = ifelse(nCount_RNA > 30000 | nFeature_RNA > 6000, "Doublet", "Singlet")) |> 
+  count(seurat_clusters, doublet) |> 
+  pivot_wider(names_from="doublet", values_from="n", values_fill=0) |> 
+  mutate(total=Doublet+Singlet) |> 
+  mutate(percent_doublet=100*Doublet/total) |> 
+  arrange(desc(percent_doublet))
+```
+
+```{r}
+VlnPlot(x, c("Gad1", "Gad2", "Slc17a7", "Slc17a6", "Slc17a8", "Cspg4", "Olig1", "Acsbg1", "C1qa", "Flt1"), stack=TRUE, flip=TRUE) + NoLegend()
+```
+
+```{r}
+sum(x$seurat_clusters %in% c("8", "16", "23", "27", "29", "30"))
+sum(x$percent.mt > 5)
+sum(x$nCount_RNA>30000)
+sum(x$nFeature_RNA>6000)
+```
+
+# Filter cells
+
+```{r}
+x <- x[, ! x$seurat_clusters %in% c("8", "16", "23", "27", "29", "30")]
+x <- x[, x$percent.mt <= 5]
+x <- x[, x$nCount_RNA <= 30000]
+x <- x[, x$nFeature_RNA <= 6000]
+x
+```
+
+```{r}
+VlnPlot(x, c("nCount_RNA", "nFeature_RNA", "percent.mt", "S.Score", "G2M.Score"), stack=TRUE, flip=TRUE) + NoLegend()
+```
+
+# Filter genes
+
+```{r}
+x <- x[! grepl("mt-", rownames(x)), ]
+x
+```
+
+# Canek integration
+
+```{r}
+x <- RunCanek(x, "background", nfeatures=5000, fvf.nfeatures=5000)
+x
+```
+
+```{r}
+x <- ScaleData(x, verbose=FALSE)
+x <- RunPCA(x)
+```
+
+```{r}
+ElbowPlot(x, ndims=50)
+PerVarPlot(x)
+```
+
+```{r}
+x <- RunUMAP(x, dims=1:20)
+```
+
+```{r}
+DimPlot(x, label=TRUE) + NoAxes() + NoLegend() + NoAxes()
+```
+
+```{r}
+x$seurat_clusters_naive <- x$seurat_clusters
+```
+
+```{r warning=FALSE}
+x <- FindNeighbors(x, dims=1:20)
+x <- FindClusters(x, algorithm="leiden", resolution=.6)
+```
+
+```{r}
+DimPlot(x, label=TRUE) + NoAxes() + NoLegend()
+```
+
+```{r}
+plot_coord2(x, expand="background", label=TRUE) & NoAxes() + NoLegend()
+```
+
+```{r}
+ggplot(x[[]], aes(background, fill=seurat_clusters)) +
+  geom_bar(position="fill")
+```
+
+```{r}
+ggplot(x[[]], aes(seurat_clusters, fill=background)) +
+  geom_bar(position="fill")
+```
+
+```{r fig.width=7, fig.height=3}
+DotPlot(x, "RNA", markers, cluster.idents=TRUE) + RotatedAxis()
+```
+
+```{r fig.width=8, fig.height=6}
+plot_coord2(x, expand="seurat_clusters") & NoLegend() + NoAxes()
+```
+
+```{r}
+plot_jaccard(x, "seurat_clusters", "seurat_clusters_naive")
+```
+
+## Export
+
+```{r}
+write_rds(x, here("rna/output/seurat.rds"))
+```
+
+# Session information
+
+```{r}
+sessionInfo()
+```

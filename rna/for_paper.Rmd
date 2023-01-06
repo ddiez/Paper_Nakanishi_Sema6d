@@ -1,0 +1,316 @@
+---
+title: "Figures for paper: snRNA-seq"
+author: Diego Diez"
+date: "2022-12-13"
+output: html_notebook
+---
+
+
+```{r setup}
+library(here)
+library(tidyverse)
+library(patchwork)
+library(Seurat)
+library(scmisc)
+library(ComplexHeatmap)
+library(ggplotify)
+
+source(here("func.R"))
+
+theme_set(cowplot::theme_cowplot())
+```
+
+# Load data
+
+```{r}
+x <- read_rds(here("rna/output/annotated.rds"))
+x
+```
+# Relabel clusters
+
+```{r}
+levels(x$label)
+```
+
+```{r}
+relabel <- function(x, factor=FALSE) {
+  key <- c(
+    "IN_1"="IN1",
+    "IN_4"="IN2",
+    "IN_5"="IN3",
+    "IN_6"="IN4",
+    "IN_7"="IN5",
+    "IN_8"="IN6",
+    "IN_10"="IN7",
+    "IN_13"="IN8",
+    "IN_14"="IN9",
+    "EN_9"="EN1",
+    "EN_11"="EN2",
+    "EN_12"="EN3",
+    "EN_17"="EN4",
+    "EN_18"="EN5",
+    "EN_19"="EN6",
+    "EN_20"="EN7",
+    "EN_21"="EN8",
+    "OPC_15"="OPC",
+    "Olig_2"="ODC1",
+    "Olig_22"="ODC2",
+    "Endo_23"="END1",
+    "Endo_24"="END2",
+    "Astro_3"="ASC",
+    "CN_25"="CN",
+    "Mg_16"="MG"
+  )
+  labels <- key[as.character(x)]
+  if (factor)
+    labels <- factor(labels, c("IN1", "IN2", "IN3", "IN4", "IN5", "IN6", "IN7", "IN8", "IN9", "EN1", "EN2", "EN3", "EN4", "EN5", "EN6", "EN7", "EN8", "CN", "MG", "ASC", "ODC1", "ODC2", "OPC", "END1", "END2"))
+  labels
+}
+```
+
+```{r}
+# x$celltype <- "Undefined"
+# x$celltype[x$label == "IN_1"] <- "IN1"
+# x$celltype[x$label == "IN_4"] <- "IN2"
+# x$celltype[x$label == "IN_5"] <- "IN3"
+# x$celltype[x$label == "IN_6"] <- "IN4"
+# x$celltype[x$label == "IN_7"] <- "IN5"
+# x$celltype[x$label == "IN_8"] <- "IN6"
+# x$celltype[x$label == "IN_10"] <- "IN7"
+# x$celltype[x$label == "IN_13"] <- "IN8"
+# x$celltype[x$label == "IN_14"] <- "IN9"
+# 
+# x$celltype[x$label == "EN_9"] <- "EN1"
+# x$celltype[x$label == "EN_11"] <- "EN2"
+# x$celltype[x$label == "EN_12"] <- "EN3"
+# x$celltype[x$label == "EN_17"] <- "EN4"
+# x$celltype[x$label == "EN_18"] <- "EN5"
+# x$celltype[x$label == "EN_19"] <- "EN6"
+# x$celltype[x$label == "EN_20"] <- "EN7"
+# x$celltype[x$label == "EN_21"] <- "EN8"
+# 
+# x$celltype[x$label == "OPC_15"] <- "OPC"
+# x$celltype[x$label == "Olig_2"] <- "ODC1"
+# x$celltype[x$label == "Olig_22"] <- "ODC2"
+# 
+# x$celltype[x$label == "Endo_23"] <- "END1"
+# x$celltype[x$label == "Endo_24"] <- "END2"
+# 
+# x$celltype[x$label == "Astro_3"] <- "ASC"
+# x$celltype[x$label == "CN_25"] <- "CN"
+# x$celltype[x$label == "Mg_16"] <- "MG"
+# 
+# x$celltype <- factor(x$celltype, c("IN1", "IN2", "IN3", "IN4", "IN5", "IN6", "IN7", "IN8", "IN9", "EN1", "EN2", "EN3", "EN4", "EN5", "EN6", "EN7", "EN8", "CN", "MG", "ASC", "ODC1", "ODC2", "OPC", "END1", "END2"))
+```
+
+```{r}
+x$celltype <- relabel(x$label, factor=TRUE)
+```
+
+```{r fig.width=6, fig.height=3}
+DimPlot(x, group.by="label", label=TRUE) +
+DimPlot(x, group.by="celltype", label=TRUE) & NoAxes() + NoLegend()
+```
+
+# fig 6F: UMAP
+
+```{r fig.width=3, fig.height=3}
+DimPlot(x, group.by="celltype", label=TRUE) + NoAxes() + NoLegend() + labs(title=NULL)
+```
+
+```{r}
+ggsave(here("rna/figures/fig6F.pdf"), width=5, height=5)
+```
+
+# fig S6C: Dotplot
+
+```{r fig.width=5, fig.height=3}
+markers <- list(
+  "Interneuron" = c("Gad1", "Gad2"),
+  "Neuron" = c("Slc17a7", "Slc17a6", "Slc17a8"),
+  "Mg" = c("C1qa", "C1qb"),
+  "Astro" = c("Acsbg1", "Aldh1l1", "Sox9"),
+  "Oligo" = c("Olig1", "Olig2"),
+  "OPC" = c("Cspg4"),
+  "Endo" = c("Flt1")
+)
+DotPlot(x, "RNA", markers, group.by="celltype") + RotatedAxis()
+```
+
+```{r}
+ggsave(here("rna/figures/figS6C.pdf"), width=10, height=6)
+```
+
+# fig 6G: UMAP of conditions
+
+```{r}
+plot_coord2(x, expand="background", label=TRUE, group.by="celltype", size=.1) & NoLegend() + NoAxes()
+```
+
+```{r}
+ggsave(here("rna/figures/fig6G.pdf"), width=10, height=5)
+```
+
+# fig S6D: Cell composition
+
+```{r fig.width=2, fig.height=2}
+x[[]] |> group_by(background) |> add_count(name="total") |> 
+  count(background, celltype.l0, total) |> 
+  mutate(percentage=100 * n/total) |> 
+ggplot(aes(background, percentage, fill=celltype.l0)) +
+  geom_col() +
+  scale_y_continuous(expand = c(0,0)) +
+  theme(legend.title=element_blank()) +
+  labs(x=NULL, y="Cell distribution %")
+```
+
+```{r}
+ggsave(here("rna/figures/figS6D.pdf"), width=3, height=3)
+```
+
+# fig S6E: KO vs. WT DEGs barplot
+
+```{r}
+deg <- read_tsv(here("rna/reports/deg_celltype.l0_KOvsWT.txt"))
+head(deg)
+```
+
+```{r}
+deg <- deg |> mutate(cluster=sub("Celltype (.*):.*", "\\1", cluster))
+```
+
+```{r}
+plot_deg_barplot(deg, lfc=.25, fdr=0.05)
+```
+
+```{r}
+ggsave(here("rna/figures/figS6E.pdf"), width=4, height=2)
+```
+
+# fig S6F: Violin plot Sema6d, Plxn4a in WT
+
+```{r}
+d <- get_coord(x, add.exprs=c("Sema6d", "Plxna4"))
+d <- d |> filter(background=="WT")
+d |> count(background)
+```
+
+```{r fig.width=6, fig.height=1.5}
+cell.ord <- d |> group_by(celltype) |> summarize(mean=mean(Sema6d)) |> arrange(desc(mean)) |> pull(celltype)
+x$order <- factor(x$celltype, cell.ord)
+p1 <- VlnPlot(x, "Sema6d", group.by="order", pt.size=0) + NoLegend() + labs(x=NULL)
+p1
+```
+
+```{r fig.width=4, fig.height=1.5}
+cell.ord <- d |> group_by(celltype) |> summarize(mean=mean(Plxna4)) |> arrange(desc(mean)) |> pull(celltype)
+x$order <- factor(x$celltype, cell.ord)
+p2 <- VlnPlot(x, "Plxna4", group.by="order", pt.size=0) + NoLegend() + labs(x=NULL)
+p2
+```
+
+```{r}
+p1 / p2
+```
+
+```{r}
+ggsave(here("rna/figures/figS6F.pdf"), width=6, height=5)
+```
+
+# fig 6I: Cell-cell interaction: celltype.l0
+
+```{r}
+res_WT <- read_cpdb_out(here("rna/output/cpdb_celltype.l0_WT"))
+res_KO <- read_cpdb_out(here("rna/output/cpdb_celltype.l0_KO"))
+```
+
+```{r}
+scores_WT <- calculate_cpdb_cellxcell_score(res_WT)
+scores_KO <- calculate_cpdb_cellxcell_score(res_KO)
+scores_diff <- scores_KO-scores_WT
+```
+
+```{r fig.width=3, fig.height=1.5}
+p <- as.ggplot(Heatmap(scores_WT, column_title="WT", name="score")) | as.ggplot(Heatmap(scores_KO, column_title="KO", name="score"))
+p
+```
+
+```{r}
+pdf(here("rna/figures/fig6I.pdf"), width=6.5, height=3)
+p
+dev.off()
+```
+
+# fig 6J: Cell-cell interaction: label
+
+```{r}
+res_WT <- read_cpdb_out(here("rna/output/cpdb_label_WT"))
+res_KO <- read_cpdb_out(here("rna/output/cpdb_label_KO"))
+```
+
+```{r}
+scores_WT <- calculate_cpdb_cellxcell_score(res_WT)
+scores_KO <- calculate_cpdb_cellxcell_score(res_KO)
+scores_diff <- scores_KO-scores_WT
+```
+
+```{r}
+sel <- grep("EN|IN", colnames(scores_WT), value=TRUE, ignore.case=FALSE)
+scores_diff <- scores_diff[sel, sel]
+```
+
+```{r fig.width=3, fig.height=3}
+Heatmap(scores_diff, column_title="KO - WT", name="diff")
+```
+
+```{r}
+colnames(scores_diff) <- relabel(colnames(scores_diff))
+rownames(scores_diff) <- relabel(rownames(scores_diff))
+```
+
+```{r}
+ord <- order(colnames(scores_diff))
+scores_diff <- scores_diff[ord, ord]
+```
+
+```{r fig.width=3, fig.height=3}
+p <- Heatmap(scores_diff, column_title="KO - WT", name="diff", cluster_rows=FALSE, cluster_columns=FALSE)
+p
+```
+
+```{r}
+pdf(here("rna/figures/fig6J.pdf"), width=4, height=4)
+p
+dev.off()
+```
+
+# fig 6K: BLA-CeA distribution
+
+```{r}
+meta_region <- read_rds(here("rna/output/meta_region.rds"))
+meta_region <- meta_region[, "region", drop=FALSE]
+head(meta_region)
+```
+
+```{r}
+x <- AddMetaData(x, meta_region)
+```
+
+```{r}
+ggplot(x[[]], aes(celltype, fill=region)) +
+  geom_bar(position="fill") + 
+  scale_y_continuous(labels=scales::label_percent()) + 
+  RotatedAxis() +
+  labs(x=NULL, y="percentage")
+```
+
+```{r}
+ggsave(here("rna/figures/fig6K.pdf"), width=8, height=4)
+```
+
+# Session information
+
+```{r}
+sessionInfo()
+```
+

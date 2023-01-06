@@ -1,0 +1,118 @@
+---
+title: "Analyis of BLA and CeA from Visium and snRNA-seq"
+author: "Diego Diez"
+date: "2022-12-21"
+output: html_notebook
+---
+
+```{r setup}
+library(here)
+library(tidyverse)
+library(patchwork)
+library(Seurat)
+library(scmisc)
+
+theme_set(cowplot::theme_cowplot())
+```
+
+# Load data
+
+```{r}
+x <- read_rds(here("visium/output/seurat.rds"))
+x
+```
+
+```{r}
+meta <- read_rds(here("visium/output/meta_BLA-CeA.rds"))
+meta <- meta[, "region", drop=FALSE]
+head(meta)
+```
+
+```{r}
+x <- AddMetaData(x, meta)
+```
+
+```{r fig.width=5, fig.height=4}
+SpatialDimPlot(x, "region", ncol=2)
+```
+
+# Differentially expressed genes between BLA and CeA
+
+```{r}
+deg <- FindMarkers(x, "BLA", "CeA", group.by="region", verbose=FALSE)
+deg <- deg |> rownames_to_column("gene") |> 
+  mutate(cluster="BLA vs. CeA")
+head(deg)
+```
+
+```{r}
+plot_volcano(deg, n=20)
+```
+
+```{r}
+write_tsv(deg, here("visium/reports/deg_BLAvsCeA.txt"))
+```
+
+# Markers in snRNA
+
+```{r}
+y <- read_rds(here("rna/output/annotated.rds"))
+y
+```
+
+```{r}
+top <- deg |> filter(abs(avg_log2FC)>1, p_val_adj<0.05)
+top
+```
+
+```{r fig.width=8, fig.height=3}
+markers <- list(
+  BLA=top |> filter(avg_log2FC>0) |> pull(gene),
+  CeA=top |> filter(avg_log2FC<0) |> pull(gene)
+)
+DotPlot(y, "RNA", markers, group.by="label") + RotatedAxis()
+```
+
+```{r}
+y <- AddModuleScore(y, markers)
+```
+
+```{r fig.width=8, fig.height=2}
+Idents(y) <- "label"
+FeaturePlot(y, c("Cluster1", "Cluster2"), blend=TRUE, order=TRUE, label=TRUE)
+```
+
+```{r}
+VlnPlot(y, c("Cluster1", "Cluster2"), stack=TRUE, flip=TRUE)
+```
+
+```{r}
+y$region <- ifelse(y$Cluster1 > y$Cluster2, "BLA", "CeA")
+```
+
+```{r}
+ggplot(y[[]], aes(label, fill=region)) +
+  geom_bar(position="fill") + RotatedAxis()
+```
+
+```{r}
+plot_coord2(y, expand="region", label=TRUE, size=.1) & NoAxes() + NoLegend()
+```
+
+# Export
+
+```{r}
+top <- top |> mutate(region=ifelse(avg_log2FC>0, "BLA", "CeA"))
+```
+
+```{r}
+write_tsv(top, here("visium/reports/BLA-CeA_markers.txt"))
+write_rds(y[[]], here("rna/output/meta_region.rds"))
+```
+
+# Session information
+
+```{r}
+sessionInfo()
+```
+

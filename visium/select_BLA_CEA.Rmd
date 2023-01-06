@@ -1,0 +1,160 @@
+---
+title: "Identification of BLA and CeA"
+author: "Diego Diez"
+date: "2022-12-16"
+output: html_notebook
+---
+
+
+```{r setup}
+library(here)
+library(tidyverse)
+library(patchwork)
+library(Seurat)
+library(shinycluster)
+
+source(here("func.R"))
+
+theme_set(cowplot::theme_cowplot())
+```
+
+# Load data
+
+```{r}
+x <- read_rds(here("visium/output/seurat.rds"))
+x
+```
+
+```{r}
+markers <- c("Slc17a7", "Gad2", "Ppp1r1b", "Rspo2", "Drd1", "Drd2", "Tac2")
+```
+
+```{r fig.width=4, fig.height=10}
+SpatialFeaturePlot(x, markers)
+```
+
+# Define region markers
+
+```{r}
+define_region <- function(x, image, markers, regions) {
+  coord <- GetTissueCoordinates(x, image=image)
+  cells <- rownames(coord)
+  exprs <- scale(FetchData(x, vars=markers))[cells, ]
+  d <- cbind(x[[]][cells, ], exprs)
+  d <- cbind(coord, d)
+  
+  for(n in names(regions)) {
+    d[[n]] <- rowSums(d[, regions[[n]]])
+  }
+  d
+}
+```
+
+```{r}
+d_WT1 <- define_region(x, image="WT1", markers=markers, regions=list(BLA=c("Slc17a7", "Rspo2"), CeA=c("Gad2", "Tac2")))
+ggplot(d_WT1, aes(-imagerow, -imagecol, color=BLA)) +
+  geom_point() +
+  scale_color_distiller(palette="Spectral") +
+
+ggplot(d_WT1, aes(-imagerow, -imagecol, color=CeA)) +
+  geom_point() +
+  scale_color_distiller(palette="Spectral") & NoAxes() & plot_annotation(title="WT1")
+
+d_WT2 <- define_region(x, image="WT2", markers=markers, regions=list(BLA=c("Slc17a7", "Rspo2"), CeA=c("Gad2", "Tac2")))
+ggplot(d_WT2, aes(-imagerow, -imagecol, color=BLA)) +
+  geom_point() +
+  scale_color_distiller(palette="Spectral") +
+
+ggplot(d_WT2, aes(-imagerow, -imagecol, color=CeA)) +
+  geom_point() +
+  scale_color_distiller(palette="Spectral") & NoAxes() & plot_annotation(title="WT2")
+
+d_KO1 <- define_region(x, image="KO1", markers=markers, regions=list(BLA=c("Slc17a7", "Rspo2"), CeA=c("Gad2", "Tac2")))
+ggplot(d_KO1, aes(-imagerow, -imagecol, color=BLA)) +
+  geom_point() +
+  scale_color_distiller(palette="Spectral") +
+
+ggplot(d_KO1, aes(-imagerow, -imagecol, color=CeA)) +
+  geom_point() +
+  scale_color_distiller(palette="Spectral") & NoAxes() & plot_annotation(title="KO1")
+
+d_KO2 <- define_region(x, image="KO2", markers=markers, regions=list(BLA=c("Slc17a7", "Rspo2"), CeA=c("Gad2", "Tac2")))
+ggplot(d_KO2, aes(-imagerow, -imagecol, color=BLA)) +
+  geom_point() +
+  scale_color_distiller(palette="Spectral") +
+
+ggplot(d_KO2, aes(-imagerow, -imagecol, color=CeA)) +
+  geom_point() +
+  scale_color_distiller(palette="Spectral") & NoAxes() & plot_annotation(title="KO2")
+```
+
+# Select regions
+
+```{r}
+#res_WT1 <- select_cluster(d_WT1)
+#res_WT2 <- select_cluster(d_WT2)
+#res_KO1 <- select_cluster(d_KO1)
+#res_KO2 <- select_cluster(d_KO2)
+#write_rds(res_WT1, here("visium/output/BLA-CeA_WT1.rds"))
+#write_rds(res_WT2, here("visium/output/BLA-CeA_WT2.rds"))
+#write_rds(res_KO1, here("visium/output/BLA-CeA_KO1.rds"))
+#write_rds(res_KO2, here("visium/output/BLA-CeA_KO2.rds"))
+```
+
+# Load regions
+
+```{r}
+res_WT1 <- read_rds(here("visium/output/BLA-CeA_WT1.rds"))
+res_WT2 <- read_rds(here("visium/output/BLA-CeA_WT2.rds"))
+res_KO1 <- read_rds(here("visium/output/BLA-CeA_KO1.rds"))
+res_KO2 <- read_rds(here("visium/output/BLA-CeA_KO2.rds"))
+```
+
+```{r fig.width=6, fig.height=6}
+plot_cellector(res_WT1, "WT1") /
+plot_cellector(res_WT2, "WT2") /
+plot_cellector(res_KO1, "KO1") /
+plot_cellector(res_KO2, "KO2")
+```
+
+# Metadata
+
+```{r}
+d_WT1 <- cbind(res_WT1$data, cluster=res_WT1$cluster)
+d_WT2 <- cbind(res_WT2$data, cluster=res_WT2$cluster)
+d_KO1 <- cbind(res_KO1$data, cluster=res_KO1$cluster)
+d_KO2 <- cbind(res_KO2$data, cluster=res_KO2$cluster)
+meta <- rbind(d_WT1, d_WT2, d_KO1, d_KO2)
+meta <- meta[colnames(x), ]
+head(meta)
+```
+
+```{r}
+meta$region <- "Other"
+meta$region[meta$cluster == 1] <- "BLA"
+meta$region[meta$cluster == 2] <- "CeA"
+meta$region <- factor(meta$region, c("BLA", "CeA", "Other"))
+head(meta)
+```
+
+```{r fig.width=4, fig.height=3}
+x <- AddMetaData(x, meta[, "region", drop=FALSE])
+SpatialDimPlot(x, group.by="region", ncol=2, cols=c("BLA"="violetred", "CeA"="limegreen", "Other"="lightgrey"))
+```
+
+```{r  fig.width=4, fig.height=3}
+SpatialDimPlot(x, cells.highlight=list("BLA"=Cells(x)[x$region=="BLA"], "CeA"=Cells(x)[x$region=="CeA"]), cols.highlight=c("BLA"="violetred", "CeA"="limegreen"), ncol=2) & guides(fill=guide_legend(title="region"))
+```
+
+# Export
+
+```{r}
+write_rds(meta, here("visium/output/meta_BLA-CeA.rds"))
+```
+
+# Session information
+
+```{r}
+sessionInfo()
+```
+

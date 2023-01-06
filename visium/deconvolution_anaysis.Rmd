@@ -1,0 +1,364 @@
+---
+title: "Analysis of deconvolution results"
+author: "Diego Diez"
+date: "2022-12-09"
+output: html_notebook
+---
+
+
+```{r setup}
+library(here)
+library(tidyverse)
+library(patchwork)
+library(Seurat)
+library(ComplexHeatmap)
+
+theme_set(cowplot::theme_cowplot())
+```
+
+# Load data
+
+```{r}
+x <- read_rds(here("visium/output/seurat.rds"))
+```
+
+```{r}
+meta_blacea <- read_rds(here("visium/output/meta_BLA-CeA.rds"))
+meta_blacea <- meta_blacea[, "region", drop=FALSE]
+```
+
+```{r}
+x <- AddMetaData(x, meta_blacea)
+```
+
+```{r}
+meta_blacea <- meta_blacea |> rownames_to_column("cell")
+head(meta_blacea)
+```
+
+# Resolution: celltype.l0
+
+```{r}
+rctd <- read_rds(here("visium/output/rctd_celltype.l0.rds"))
+```
+
+```{r}
+w <- list()
+w[["WT1"]] <- rctd$WT1@results$weights
+w[["WT2"]] <- rctd$WT2@results$weights
+w[["KO1"]] <- rctd$KO1@results$weights
+w[["KO2"]] <- rctd$KO2@results$weights
+```
+
+
+```{r}
+w_agg <- lapply(w, function(ww) {
+  ids <- x$seurat_clusters
+  ids <- ids[rownames(ww)]
+  avg <- limma::avereps(ww, ids)
+  avg[sort(rownames(avg)), ]
+})
+```
+
+```{r}
+Heatmap(w_agg[["WT1"]], name="weight", column_title="WT1", cluster_columns=FALSE) +
+Heatmap(w_agg[["WT2"]], name="weight", column_title="WT2", cluster_columns=FALSE) +
+Heatmap(w_agg[["KO1"]], name="weight", column_title="KO1", cluster_columns=FALSE) +
+Heatmap(w_agg[["KO2"]], name="weight", column_title="KO2", cluster_columns=FALSE)
+```
+
+```{r}
+Heatmap(w_agg[["WT1"]][c("8", "11"), c("EN", "IN", "Olig")], name="weight", column_title="WT1", cluster_columns=FALSE) +
+Heatmap(w_agg[["WT2"]][c("8", "11"), c("EN", "IN", "Olig")], name="weight", column_title="WT2", cluster_columns=FALSE) +
+Heatmap(w_agg[["KO1"]][c("8", "11"), c("EN", "IN", "Olig")], name="weight", column_title="KO1", cluster_columns=FALSE) +
+Heatmap(w_agg[["KO2"]][c("8", "11"), c("EN", "IN", "Olig")], name="weight", column_title="KO2", cluster_columns=FALSE)
+```
+```{r}
+d <- lapply(names(w), function(n) {
+  w[[n]] |> as_tibble() |> 
+    pivot_longer(cols=everything(), names_to="celltype", values_to="weight") |> 
+    mutate(samplename=n)
+}) |> bind_rows()
+head(d)
+```
+
+```{r}
+ggplot(d, aes(celltype, weight, fill=samplename)) +
+  geom_violin(scale="width")
+```
+
+```{r}
+d <- lapply(names(w), function(n) {
+  w[[n]] |> as_tibble(rownames="cell")
+}) |> bind_rows()
+head(d)
+```
+
+```{r}
+meta <- x[[]][, c("samplename", "seurat_clusters")]
+meta <- meta[d$cell, ]
+head(meta)
+```
+
+```{r}
+d <- cbind(d, meta)
+head(d)
+```
+
+```{r}
+d <- d |> pivot_longer(cols=-c("cell", "samplename", "seurat_clusters"), names_to="celltype", values_to="weight")
+head(d)
+```
+
+```{r fig.width=8, fig.height=4}
+ggplot(d, aes(celltype, weight, fill=samplename)) +
+  geom_violin(scale="width") +
+  facet_wrap("seurat_clusters") + RotatedAxis()
+```
+
+```{r}
+d <- left_join(d, meta_blacea)
+head(d)
+```
+
+```{r fig.width=4, fig.height=2}
+ggplot(d |> filter(region != "Other", grepl("^EN|IN|CN", celltype)), aes(celltype, weight, fill=samplename)) +
+  geom_violin(scale="width") +
+  facet_grid(c("region", "samplename")) + RotatedAxis()
+```
+
+# Resolution: label
+
+```{r}
+rctd <- read_rds(here("visium/output/rctd_label.rds"))
+```
+
+```{r}
+w <- list()
+w[["WT1"]] <- rctd$WT1@results$weights
+w[["WT2"]] <- rctd$WT2@results$weights
+w[["KO1"]] <- rctd$KO1@results$weights
+w[["KO2"]] <- rctd$KO2@results$weights
+```
+
+
+```{r}
+w_agg <- lapply(w, function(ww) {
+  ids <- x$seurat_clusters
+  ids <- ids[rownames(ww)]
+  avg <- limma::avereps(ww, ids)
+  avg[sort(rownames(avg)), ]
+})
+```
+
+```{r fig.width=8, fig.height=2}
+Heatmap(w_agg[["WT1"]], name="weight", column_title="WT1", cluster_columns=FALSE) +
+Heatmap(w_agg[["WT2"]], name="weight", column_title="WT2", cluster_columns=FALSE) +
+Heatmap(w_agg[["KO1"]], name="weight", column_title="KO1", cluster_columns=FALSE) +
+Heatmap(w_agg[["KO2"]], name="weight", column_title="KO2", cluster_columns=FALSE)
+```
+
+```{r}
+d <- lapply(names(w), function(n) {
+  w[[n]] |> as_tibble() |> 
+    pivot_longer(cols=everything(), names_to="celltype", values_to="weight") |> 
+    mutate(samplename=n)
+}) |> bind_rows()
+head(d)
+```
+
+```{r fig.width=6, fig.height=2}
+ggplot(d, aes(celltype, weight, fill=samplename)) +
+  geom_violin(scale="width") + RotatedAxis()
+```
+
+```{r}
+d <- lapply(names(w), function(n) {
+  w[[n]] |> as_tibble(rownames="cell")
+}) |> bind_rows()
+head(d)
+```
+
+```{r}
+meta <- x[[]][, c("samplename", "seurat_clusters")]
+meta <- meta[d$cell, ]
+head(meta)
+```
+
+```{r}
+d <- cbind(d, meta)
+head(d)
+```
+
+```{r}
+d <- d |> pivot_longer(cols=-c("cell", "samplename", "seurat_clusters"), names_to="celltype", values_to="weight")
+head(d)
+```
+
+```{r fig.width=15, fig.height=4}
+ggplot(d, aes(celltype, weight, fill=samplename)) +
+  geom_violin(scale="width") +
+  facet_wrap("seurat_clusters") + RotatedAxis()
+```
+
+```{r fig.width=6, fig.height=2}
+ggplot(d |> filter(seurat_clusters %in% c("8", "11"), grepl("^EN|IN|CN", celltype)), aes(celltype, weight, fill=samplename)) +
+  geom_violin(scale="width") +
+  facet_wrap("seurat_clusters") + RotatedAxis()
+```
+
+```{r}
+d <- left_join(d, meta_blacea)
+head(d)
+```
+
+```{r fig.width=8, fig.height=2}
+ggplot(d |> filter(region != "Other", grepl("^EN|IN|CN", celltype)), aes(celltype, weight, fill=samplename)) +
+  geom_violin(scale="width") +
+  facet_grid(c("region", "samplename")) + RotatedAxis()
+```
+
+# Resolution: label
+
+```{r}
+rctd <- read_rds(here("visium/output/rctd_label_BLA-CeA.rds"))
+```
+
+```{r}
+w <- list()
+w[["WT1"]] <- rctd$WT1@results$weights
+w[["WT2"]] <- rctd$WT2@results$weights
+w[["KO1"]] <- rctd$KO1@results$weights
+w[["KO2"]] <- rctd$KO2@results$weights
+```
+
+
+```{r}
+w_agg <- lapply(w, function(ww) {
+  ids <- x$seurat_clusters
+  ids <- ids[rownames(ww)]
+  avg <- limma::avereps(ww, ids)
+  avg[sort(rownames(avg)), ]
+})
+```
+
+```{r fig.width=8, fig.height=2}
+Heatmap(w_agg[["WT1"]], name="weight", column_title="WT1", cluster_columns=FALSE)
+Heatmap(w_agg[["WT2"]], name="weight", column_title="WT2", cluster_columns=FALSE)
+Heatmap(w_agg[["KO1"]], name="weight", column_title="KO1", cluster_columns=FALSE)
+Heatmap(w_agg[["KO2"]], name="weight", column_title="KO2", cluster_columns=FALSE)
+```
+
+```{r}
+d <- lapply(names(w), function(n) {
+  w[[n]] |> as_tibble() |> 
+    pivot_longer(cols=everything(), names_to="celltype", values_to="weight") |> 
+    mutate(samplename=n)
+}) |> bind_rows()
+head(d)
+```
+
+```{r fig.width=6, fig.height=2}
+ggplot(d, aes(celltype, weight, fill=samplename)) +
+  geom_violin(scale="width") + RotatedAxis()
+```
+
+```{r}
+d <- lapply(names(w), function(n) {
+  w[[n]] |> as_tibble(rownames="cell")
+}) |> bind_rows()
+head(d)
+```
+
+```{r}
+meta <- x[[]][, c("samplename", "seurat_clusters")]
+meta <- meta[d$cell, ]
+head(meta)
+```
+
+```{r}
+d <- cbind(d, meta)
+head(d)
+```
+
+```{r}
+d <- d |> pivot_longer(cols=-c("cell", "samplename", "seurat_clusters"), names_to="celltype", values_to="weight")
+head(d)
+```
+
+```{r fig.width=15, fig.height=4}
+ggplot(d, aes(celltype, weight, fill=samplename)) +
+  geom_violin(scale="width") +
+  facet_wrap("seurat_clusters") + RotatedAxis()
+```
+
+```{r fig.width=6, fig.height=2}
+ggplot(d |> filter(seurat_clusters %in% c("8", "11"), grepl("^EN|IN|CN", celltype)), aes(celltype, weight, fill=samplename)) +
+  geom_violin(scale="width") +
+  facet_wrap("seurat_clusters") + RotatedAxis()
+```
+
+```{r}
+d <- left_join(d, meta_blacea)
+head(d)
+```
+
+```{r fig.width=8, fig.height=2}
+ggplot(d |> filter(region != "Other", grepl("^EN|IN|CN", celltype)), aes(celltype, weight, fill=samplename)) +
+  geom_violin(scale="width") +
+  facet_grid(c("region", "samplename")) + RotatedAxis()
+```
+```{r}
+d_filtered <- d |> filter(region != "Other", grepl("^EN|IN|CN", celltype))
+```
+
+```{r fig.width=4, fig.height=3}
+ggplot(d_filtered, aes(region, weight, fill=region)) + 
+  geom_violin(scale="width") +
+  #geom_boxplot() +
+  facet_wrap("celltype", scales="free") + NoLegend()
+
+ggplot(d_filtered, aes(region, weight, fill=region)) + 
+  geom_violin(scale="width") +
+  #geom_boxplot() +
+  geom_jitter(size=.1) +
+  facet_wrap("celltype", scales="free") + NoLegend()
+```
+
+```{r}
+w_all <- do.call(rbind, w)
+w_all <- Matrix::t(w_all)
+w_all[1:3, 1:3]
+```
+
+```{r}
+y <- x[, colnames(w_all)]
+```
+
+```{r}
+w_all <- w_all[, colnames(y)]
+w_all[1:3, 1:3]
+```
+
+```{r}
+y[["rctd"]] <- CreateAssayObject(w_all)
+```
+
+```{r fig.width=7, fig.height=8}
+SpatialDimPlot(y, group.by="region", ncol=2, pt.size.factor=5)
+```
+
+```{r fig.width=7, fig.height=8}
+SpatialFeaturePlot(y, "Rspo2", ncol=2, pt.size.factor=5)
+```
+
+```{r fig.width=8, fig.height=8}
+SpatialFeaturePlot(y, c("rctd_EN-18", "rctd_EN-9", "rctd_EN-21"), ncol=4, pt.size.factor=5)
+```
+
+# Session information
+
+```{r}
+sessionInfo()
+```
+

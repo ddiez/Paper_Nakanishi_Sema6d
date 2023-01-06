@@ -1,0 +1,279 @@
+---
+title: "Analysis of Visium data: mouse brain amygdala"
+author: "Diego Diez"
+date: "2022-12-05"
+output: html_notebook
+---
+
+```{r setup}
+library(here)
+library(tidyverse)
+library(patchwork)
+library(Seurat)
+library(scmisc)
+library(singleCellHaystack)
+library(ComplexHeatmap)
+
+theme_set(cowplot::theme_cowplot())
+
+set.seed(1)
+```
+
+# Load data
+
+```{r}
+x <- read_rds(here("visium/output/seurat.rds"))
+DefaultAssay(x) <- "Spatial"
+x
+```
+
+```{r}
+y <- sample_cells(x, "seurat_clusters", n_max=50)
+```
+
+```{r}
+DimPlot(x, label=TRUE) + NoLegend() + NoAxes()
+```
+
+# Semaphorin and Plexin expression
+
+```{r fig.width=6, fig.height=4}
+VlnPlot(x, c("Gad1", "Gad2", "Slc17a7", "Slc17a6", "Slc17a8", "Sema6d", "Plxna4"), stack=TRUE, flip=TRUE, split.by="samplename")
+```
+
+```{r fig.width=8, fig.height=4}
+FeaturePlot(x, c("Sema6d", "Plxna4"), blend=TRUE, order=TRUE, split.by="background")
+```
+
+# Cell distribution
+
+```{r fig.width=3, fig.height=3}
+x[[]] |> group_by(background) |> add_count(name="total") |> 
+  count(background, seurat_clusters, total) |> 
+  mutate(percentage=100 * n/total) |> 
+ggplot(aes(background, percentage, fill=seurat_clusters)) +
+  geom_col() +
+  scale_y_continuous(expand = c(0,0)) +
+  theme(legend.title=element_blank()) +
+  labs(x=NULL, y="Cell distribution %")
+```
+
+```{r}
+ggplot(x[[]], aes(seurat_clusters, fill=background)) + geom_bar(position="fill") + RotatedAxis()
+```
+
+```{r fig.width=2, fig.height=2}
+ggplot(x[[]], aes(background)) + geom_bar()
+```
+
+# Differentially expressed genes: pseudobulk
+
+```{r}
+deg <- FindMarkers(x, "KO", "WT", group.by="background", verbose=FALSE)
+deg <- deg |> rownames_to_column("gene") |> 
+    mutate(cluster=paste0("KO vs. WT")) 
+```
+
+```{r}
+plot_volcano(deg, lfc=.25, fdr=0.05, n=20)
+```
+
+```{r}
+plot_deg_barplot(deg, lfc=.25, fdr=0.05)
+plot_deg_barplot(deg, lfc=1, fdr=0.05)
+```
+
+```{r}
+write_tsv(deg, here("visium/reports/deg_pseudobulk_KOvsWT.txt"))
+```
+
+# Enrichment analysis
+
+```{r}
+db <- org.Mm.eg.db::org.Mm.eg.db
+deg$entrezgene <- AnnotationDbi::mapIds(db, deg$gene, "ENTREZID", "SYMBOL")
+head(deg)
+```
+
+```{r}
+res_kegg <- run_enrichment(deg, type="kegg", org="Mm", fdr=0.05, lfc=0.25)
+head(res_kegg)
+```
+
+```{r fig.width=6, fig.height=3}
+clusters <- sort(unique(res_kegg$cluster))
+
+lapply(clusters, function(cluster) {
+  plot_enrichment_barplot(res_kegg |> filter(cluster==!!cluster)) +
+    labs(title=paste0(cluster, "; KEGG pathways"))
+}) |> wrap_plots()
+```
+
+```{r}
+res_go <- run_enrichment(deg, type="go", org="Mm", fdr=0.05, lfc=0.25)
+head(res_go)
+```
+
+```{r fig.width=6, fig.height=3}
+clusters <- sort(unique(res_go$cluster))
+
+lapply(clusters, function(cluster) {
+  plot_enrichment_barplot(res_go |> filter(cluster==!!cluster, Ont=="BP")) +
+    labs(title=paste0(cluster, "; Ontology: BP"))
+}) |> wrap_plots()
+
+lapply(clusters, function(cluster) {
+  plot_enrichment_barplot(res_go |> filter(cluster==!!cluster, Ont=="MF"))+
+    labs(title=paste0(cluster, "; Ontology: MF"))
+}) |> wrap_plots()
+
+lapply(clusters, function(cluster) {
+  plot_enrichment_barplot(res_go |> filter(cluster==!!cluster, Ont=="CC"))+
+    labs(title=paste0(cluster, "; Ontology: CC"))
+}) |> wrap_plots()
+```
+
+# Differentially expressed genes between background by seurat_clusters
+
+```{r}
+Idents(x) <- "seurat_clusters"
+clusters <- levels(x$seurat_clusters)
+
+deg <- lapply(clusters, function(cluster) {
+  deg <- FindMarkers(x, "KO", "WT", group.by="background", subset.ident=cluster, assay="Spatial", verbose=FALSE)
+  deg <- deg |> rownames_to_column("gene") |> 
+    mutate(cluster=paste0("Cluster ", cluster, ": KO vs. WT"))
+  deg
+}) |> bind_rows()
+head(deg)
+```
+
+```{r fig.width=15, fig.height=12}
+plot_volcano(deg, lfc=.25, fdr=0.05)
+```
+
+```{r}
+top <- top_deg(deg, fdr=0.05, lfc=.25)
+top
+```
+
+```{r fig.width=6, fig.height=4}
+plot_heatmap(y[top$gene, ], column_split=y$seurat_clusters, top_ann="background", top_ann_col=list(background=c("WT"="lightgrey", "KO"="black")))
+```
+
+```{r}
+plot_deg_barplot(deg, lfc=.25, fdr=0.05)
+plot_deg_barplot(deg, lfc=1, fdr=0.05)
+```
+
+```{r}
+write_tsv(deg, here("visium/reports/deg_cluster_KOvsWT.txt"))
+```
+
+# Enrichment analysis
+
+```{r}
+db <- org.Mm.eg.db::org.Mm.eg.db
+deg$entrezgene <- AnnotationDbi::mapIds(db, deg$gene, "ENTREZID", "SYMBOL")
+head(deg)
+```
+
+```{r}
+res_kegg <- run_enrichment(deg, type="kegg", org="Mm", fdr=0.05, lfc=0.25)
+head(res_kegg)
+```
+
+```{r fig.width=25, fig.height=12}
+clusters <- sort(unique(res_kegg$cluster))
+
+lapply(clusters, function(cluster) {
+  plot_enrichment_barplot(res_kegg |> filter(cluster==!!cluster)) +
+    labs(title=paste0(cluster, "; KEGG pathways"))
+}) |> wrap_plots()
+```
+
+```{r}
+res_go <- run_enrichment(deg, type="go", org="Mm", fdr=0.05, lfc=0.25)
+head(res_go)
+```
+
+```{r fig.width=28, fig.height=12}
+clusters <- sort(unique(res_go$cluster))
+
+lapply(clusters, function(cluster) {
+  plot_enrichment_barplot(res_go |> filter(cluster==!!cluster, Ont=="BP")) +
+    labs(title=paste0(cluster, "; Ontology: BP"))
+}) |> wrap_plots()
+
+lapply(clusters, function(cluster) {
+  plot_enrichment_barplot(res_go |> filter(cluster==!!cluster, Ont=="MF"))+
+    labs(title=paste0(cluster, "; Ontology: MF"))
+}) |> wrap_plots()
+
+lapply(clusters, function(cluster) {
+  plot_enrichment_barplot(res_go |> filter(cluster==!!cluster, Ont=="CC"))+
+    labs(title=paste0(cluster, "; Ontology: CC"))
+}) |> wrap_plots()
+```
+
+# Haystack
+
+```{r}
+coord <- GetTissueCoordinates(x)
+exprs <- GetAssayData(x, assay="Spatial", slot="data")[, rownames(coord)]
+res <- haystack(coord, exprs)
+#res <- haystack(x, assay="RNA", slot="data", coord="pca")
+```
+
+```{r}
+plot_rand_fit(res, "mean")
+plot_rand_fit(res, "sd")
+```
+
+```{r}
+sum <- show_result_haystack(res)
+head(sum)
+```
+
+```{r}
+plot_result_rank(res, highlight="Sema6d") + 
+  geom_vline(xintercept=1000, color="limegreen")
+ggplot(sum, aes(10^log.p.vals)) +
+  geom_histogram(bins=30)
+```
+
+```{r}
+top_genes_haystack <- head(rownames(sum), 1000)
+```
+
+```{r}
+scores <- AverageExpression(x, features=top_genes_haystack, group.by="seurat_clusters", assay="Spatial", slot="data")[["Spatial"]]
+scores <- t(scale(t(scores)))
+head(scores)
+```
+
+```{r}
+# meta <- x[[]]
+# meta <- distinct(meta[, c("label", "celltype.l0")])
+# rownames(meta) <- meta$label
+# meta <- meta |> select(celltype.l0)
+# meta <- meta[colnames(scores), ,drop=FALSE]
+# col <- c(
+#   "Astro"="red",
+#   "OPC"="orange",
+#   "Olig"="yellow2",
+#   "Mg"="black",
+#   "Endo"="yellow4",
+#   "EN"="violetred",
+#   "IN"="limegreen",
+#   "CN"="purple")
+# top_ann <- columnAnnotation(df=meta, col=list("celltype.l0"=col))
+# Heatmap(scores, show_row_names=FALSE, show_column_names=TRUE, name="score", show_row_dend=TRUE, cluster_columns=TRUE, top_annotation=top_ann)
+Heatmap(scores, show_row_names=FALSE, show_column_names=TRUE, name="score", show_row_dend=TRUE, cluster_columns=TRUE, column_title="WT1")
+```
+
+# Session information
+
+```{r}
+sessionInfo()
+```

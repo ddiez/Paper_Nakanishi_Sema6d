@@ -1,0 +1,89 @@
+---
+title: "Prepare cellphonedb input data"
+author: "Diego Diez"
+date: "2022-12-16"
+output: html_notebook
+---
+
+```{r setup}
+library(here)
+library(tidyverse)
+library(patchwork)
+library(Seurat)
+library(scmisc)
+
+theme_set(cowplot::theme_cowplot())
+
+set.seed(1)
+```
+
+# Load data
+
+```{r}
+x <- read_rds(here("rna/output/annotated.rds"))
+DefaultAssay(x) <- "RNA"
+x
+```
+
+# Prepare data for cellphonedb
+
+## Metadata: label
+
+```{r}
+meta <- x[[]] |> rownames_to_column("Cell") |> select(Cell, cell_type=label)
+head(meta)
+```
+
+```{r}
+meta <- split(meta, x$background)
+```
+
+```{r}
+write_tsv(meta$WT, here("rna/output/cpdb_data/meta_label_WT.tsv"))
+write_tsv(meta$KO, here("rna/output/cpdb_data/meta_label_KO.tsv"))
+```
+
+## Metadata: celltype.l0
+
+```{r}
+meta <- x[[]] |> rownames_to_column("Cell") |> select(Cell, cell_type=celltype.l0)
+head(meta)
+```
+
+```{r}
+meta <- split(meta, x$background)
+```
+
+```{r}
+write_tsv(meta$WT, here("rna/output/cpdb_data/meta_celltype.l0_WT.tsv"))
+write_tsv(meta$KO, here("rna/output/cpdb_data/meta_celltype.l0_KO.tsv"))
+```
+
+## Counts
+
+```{r}
+m <- GetAssayData(x, assay="RNA", slot="data")
+m <- as_tibble(m, rownames="Gene")
+m[1:5, 1:5]
+```
+
+```{r}
+m <- m |> mutate(Gene=str_to_upper(Gene))
+m[1:5, 1:5]
+```
+
+```{r}
+m_WT <- m |> select(Gene, matches("WT_"))
+m_KO <- m |> select(Gene, matches("KO_"))
+```
+
+```{r}
+write_tsv(m_WT, here("rna/output/cpdb_data/counts_WT.tsv"))
+write_tsv(m_KO, here("rna/output/cpdb_data/counts_KO.tsv"))
+```
+
+# Session information
+
+```{r}
+sessionInfo()
+```

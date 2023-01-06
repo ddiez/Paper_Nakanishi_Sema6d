@@ -1,0 +1,203 @@
+---
+title: "Deconvolution of Visium data: mouse brain"
+author: "Diego Diez"
+date: "2022-12-05"
+output: html_notebook
+---
+
+```{r setup}
+library(here)
+library(tidyverse)
+library(patchwork)
+library(Seurat)
+library(scmisc)
+library(spacexr)
+
+library(ComplexHeatmap)
+
+deconvol <- function(x, image, ref, assay="Spatial", slot="count", max_cores=10) {
+  coord <- GetTissueCoordinates(x, image=image)
+  exprs <- GetAssayData(x, slot=slot, assay=assay)[, rownames(coord)]
+  query <- spacexr::SpatialRNA(coord, exprs)
+
+  rctd <- create.RCTD(query, ref, max_cores=max_cores)
+  run.RCTD(rctd, doublet_mode="full")
+}
+
+theme_set(cowplot::theme_cowplot())
+
+set.seed(1)
+```
+
+# Load data
+
+```{r}
+x <- read_rds(here("visium/output/seurat.rds"))
+DefaultAssay(x) <- "Spatial"
+x
+```
+
+```{r}
+db <- read_rds(here("rna/output/annotated.rds"))
+```
+
+# Load BLA-CeA information
+
+```{r}
+meta_blacea <- read_rds(here("visium/output/meta_BLA-CeA.rds"))
+meta_blacea <- meta_blacea[, "region", drop=FALSE]
+head(meta_blacea)
+```
+
+```{r}
+x <- AddMetaData(x, meta_blacea)
+```
+
+```{r}
+SpatialDimPlot(x, group.by="region", ncol=2)
+```
+
+```{r}
+y <- x[, x$region != "Other"]
+y
+```
+
+```{r}
+SpatialDimPlot(y, group.by="region", ncol=2, pt.size.factor=5)
+```
+
+# Deconvolution: celltype.l0
+
+```{r}
+celltypes <- db[[]][, "celltype.l0"]
+names(celltypes) <- Cells(db)
+ref <- spacexr::Reference(GetAssayData(db, assay="RNA", slot="count"), cell_types=factor(celltypes), n_max_cells=ncol(db))
+```
+
+```{r message=FALSE, warning=FALSE}
+res <- list()
+res[["WT1"]] <- deconvol(x, "WT1", ref)
+res[["WT2"]] <- deconvol(x, "WT2", ref)
+res[["KO1"]] <- deconvol(x, "KO1", ref)
+res[["KO2"]] <- deconvol(x, "KO2", ref)
+```
+
+```{r fig.width=6, fig.height=4}
+plot_rctd_weights <- function(x, show_column_names=FALSE, cluster_columns=FALSE, ...) {
+  w <- t(as.matrix(x@results$weights))
+  Heatmap(w, name="weight", show_column_names=show_column_names, cluster_columns=cluster_columns, ...)
+}
+meta <- x[[]]
+meta_ <- meta |> filter(samplename == "WT1")
+plot_rctd_weights(res[["WT1"]], column_split=meta_$seurat_clusters)
+meta_ <- meta |> filter(samplename == "WT2")
+plot_rctd_weights(res[["WT2"]], column_split=meta_$seurat_clusters, column_title="WT2")
+```
+
+```{r fig.width=12, fig.height=4}
+meta <- x[[]]
+#samples <- unique(meta$samplename)
+samples <- names(res)
+p <- lapply(samples, function(sample) {
+  meta_ <- meta |> filter(samplename == sample)
+  plot_rctd_weights(res[[sample]], column_split=meta_$seurat_clusters)
+})
+p[[1]] + p[[2]] + p[[3]] + p[[4]]
+```
+
+```{r}
+write_rds(res, here("visium/output/rctd_celltype.l0.rds"))
+```
+
+# Deconvolution: label
+
+```{r}
+celltypes <- db[[]][, "label"]
+names(celltypes) <- Cells(db)
+ref <- spacexr::Reference(GetAssayData(db, assay="RNA", slot="count"), cell_types=celltypes, n_max_cells=ncol(db))
+```
+
+```{r message=FALSE, warning=FALSE}
+res <- list()
+res[["WT1"]] <- deconvol(x, "WT1", ref)
+res[["WT2"]] <- deconvol(x, "WT2", ref)
+res[["KO1"]] <- deconvol(x, "KO1", ref)
+res[["KO2"]] <- deconvol(x, "KO2", ref)
+```
+
+```{r fig.width=6, fig.height=4}
+plot_rctd_weights <- function(x, show_column_names=FALSE, cluster_columns=FALSE, ...) {
+  w <- t(as.matrix(x@results$weights))
+  Heatmap(w, name="weight", show_column_names=show_column_names, cluster_columns=cluster_columns, ...)
+}
+meta <- x[[]]
+meta_ <- meta |> filter(samplename == "WT1")
+plot_rctd_weights(res[["WT1"]], column_split=meta_$seurat_clusters)
+meta_ <- meta |> filter(samplename == "WT2")
+plot_rctd_weights(res[["WT2"]], column_split=meta_$seurat_clusters, column_title="WT2")
+```
+
+```{r fig.width=12, fig.height=4}
+meta <- x[[]]
+#samples <- unique(meta$samplename)
+samples <- names(res)
+p <- lapply(samples, function(sample) {
+  meta_ <- meta |> filter(samplename == sample)
+  plot_rctd_weights(res[[sample]], column_split=meta_$seurat_clusters)
+})
+p[[1]] + p[[2]] + p[[3]] + p[[4]]
+```
+
+```{r}
+write_rds(res, here("visium/output/rctd_label.rds"))
+```
+
+# Deconvolution: label on BLA-CeA
+
+```{r}
+celltypes <- db[[]][, "label"]
+names(celltypes) <- Cells(db)
+ref <- spacexr::Reference(GetAssayData(db, assay="RNA", slot="count"), cell_types=celltypes, n_max_cells=ncol(db))
+```
+
+```{r message=FALSE, warning=FALSE}
+res <- list()
+res[["WT1"]] <- deconvol(y, "WT1", ref)
+res[["WT2"]] <- deconvol(y, "WT2", ref)
+res[["KO1"]] <- deconvol(y, "KO1", ref)
+res[["KO2"]] <- deconvol(y, "KO2", ref)
+```
+
+```{r fig.width=6, fig.height=4}
+plot_rctd_weights <- function(x, show_column_names=FALSE, cluster_columns=FALSE, ...) {
+  w <- t(as.matrix(x@results$weights))
+  Heatmap(w, name="weight", show_column_names=show_column_names, cluster_columns=cluster_columns, ...)
+}
+meta <- y[[]]
+meta_ <- meta |> filter(samplename == "WT1")
+plot_rctd_weights(res[["WT1"]], column_split=meta_$seurat_clusters)
+meta_ <- meta |> filter(samplename == "WT2")
+plot_rctd_weights(res[["WT2"]], column_split=meta_$seurat_clusters, column_title="WT2")
+```
+
+```{r fig.width=12, fig.height=4}
+meta <- y[[]]
+#samples <- unique(meta$samplename)
+samples <- names(res)
+p <- lapply(samples, function(sample) {
+  meta_ <- meta |> filter(samplename == sample)
+  plot_rctd_weights(res[[sample]], column_split=meta_$seurat_clusters)
+})
+p[[1]] + p[[2]] + p[[3]] + p[[4]]
+```
+
+```{r}
+write_rds(res, here("visium/output/rctd_label_BLA-CeA.rds"))
+```
+
+# Session information
+
+```{r}
+sessionInfo()
+```
+

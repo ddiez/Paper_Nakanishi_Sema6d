@@ -1,0 +1,190 @@
+---
+title: "Annotation of scRNA-seq data: mouse brain amygdala"
+author: "Diego Diez"
+date: "2022-11-10"
+output: html_notebook
+---
+
+```{r setup}
+library(here)
+library(tidyverse)
+library(patchwork)
+library(Seurat)
+library(scmisc)
+
+theme_set(cowplot::theme_cowplot())
+
+set.seed(1)
+```
+
+# Load data
+
+```{r}
+x <- read_rds(here("rna/output/seurat.rds"))
+DefaultAssay(x) <- "RNA"
+x
+```
+
+```{r}
+y <- sample_cells(x, "seurat_clusters", n_max=50)
+```
+
+```{r}
+DimPlot(x, label=TRUE) + NoLegend() + NoAxes()
+```
+
+# DEG between clusters
+
+```{r}
+deg <- FindAllMarkers(x, assay="RNA", max.cells.per.ident=500, verbose=FALSE)
+head(deg)
+```
+
+```{r fig.width=15, fig.height=12}
+plot_volcano(deg, lfc=1, fdr=0.01, max.overlaps=Inf)
+```
+
+```{r}
+top <- top_deg(deg, fdr=0.01, lfc=1, n=10)
+top
+```
+
+```{r fig.width=6, fig.height=15}
+plot_heatmap(y[top$gene, ], column_split=y$seurat_clusters)
+```
+
+```{r}
+plot_deg_barplot(deg, lfc=1, fdr=0.01) + labs(title="DEG between clusters", subtitle="FDR<0.01\nLFC=1")
+```
+
+```{r}
+write_tsv(deg, here("rna/reports/deg_clusters.txt"))
+```
+
+# Enrichment analysis
+
+```{r}
+db <- org.Mm.eg.db::org.Mm.eg.db
+deg$entrezgene <- AnnotationDbi::mapIds(db, deg$gene, "ENTREZID", "SYMBOL")
+head(deg)
+```
+
+```{r}
+res_kegg <- run_enrichment(deg, type="kegg", org="Mm", FDR=0.05)
+head(res_kegg)
+```
+
+```{r fig.width=25, fig.height=12}
+clusters <- sort(unique(res_kegg$cluster))
+
+lapply(clusters, function(cluster) {
+  plot_enrichment_barplot(res_kegg |> filter(cluster==!!cluster)) +
+    labs(title=paste0(cluster, "; KEGG pathways"))
+}) |> wrap_plots()
+```
+
+```{r}
+res_go <- run_enrichment(deg, type="go", org="Mm", FDR=0.05)
+head(res_go)
+```
+
+```{r fig.width=28, fig.height=12}
+clusters <- sort(unique(res_go$cluster))
+
+lapply(clusters, function(cluster) {
+  plot_enrichment_barplot(res_go |> filter(cluster==!!cluster, Ont=="BP")) +
+    labs(title=paste0(cluster, "; Ontology: BP"))
+}) |> wrap_plots()
+
+lapply(clusters, function(cluster) {
+  plot_enrichment_barplot(res_go |> filter(cluster==!!cluster, Ont=="MF"))+
+    labs(title=paste0(cluster, "; Ontology: MF"))
+}) |> wrap_plots()
+
+lapply(clusters, function(cluster) {
+  plot_enrichment_barplot(res_go |> filter(cluster==!!cluster, Ont=="CC"))+
+    labs(title=paste0(cluster, "; Ontology: CC"))
+}) |> wrap_plots()
+```
+
+# Markers
+
+```{r}
+markers <- list(
+  "Glia" = c("Vim", "Atp1a2", "Fam107a", "Slc1a3", "Ptn"),
+  "Neuron" = c("Neurod6", "Slc17a7", "Slc17a6", "Slc17a8"),
+  "Interneuron" = c("Gad1", "Gad2", "Dlx1", "Dlx5"),
+  "OPC" = c("Cspg4"),
+  "Oligo" = c("Olig1", "Olig2"),
+  "Astro" = c("Acsbg1", "Aldh1l1", "Sox9"),
+  "Endo" = c("Flt1"),
+  "SMC" = c("Tagln", "Acta2", "Tpm2"),
+  "Mg" = c("C1qa", "C1qb"),
+  "Other" = c("Pvalb", "Calb2", "Sst", "Vip", "Reln", "Lamp5", "Serpinf1", "Sncg", "Nos1", "Cck", "Htr3a"),
+  "Pro" = c("Mki67"),
+  "RBC" = c("Hba-a1", "Hba-a2")
+)
+```
+
+```{r fig.width=8, fig.height=4}
+DotPlot(x, "RNA", markers, cluster.idents=TRUE) + RotatedAxis()
+```
+
+```{r}
+VlnPlot(x, c("Gad1", "Gad2", "Slc17a7", "Slc17a6", "Slc17a8", "Cspg4", "Olig1", "Acsbg1", "C1qa", "Flt1", "Sema6d", "Plxna4"), stack=TRUE, flip=TRUE) + NoLegend()
+```
+
+# Define cell types
+
+```{r}
+x$celltype.l0 <- "Undefined"
+x$celltype.l0[x$seurat_clusters %in% c("9", "11", "12", "17", "18", "19", "20", "21")] <- "EN"
+x$celltype.l0[x$seurat_clusters %in% c("1", "4", "5", "6", "7", "8", "10", "13", "14")] <- "IN"
+x$celltype.l0[x$seurat_clusters %in% c("25")] <- "CN"
+
+x$celltype.l0[x$seurat_clusters %in% c("15")] <- "OPC"
+x$celltype.l0[x$seurat_clusters %in% c("2", "22")] <- "Olig"
+x$celltype.l0[x$seurat_clusters %in% c("3")] <- "Astro"
+
+x$celltype.l0[x$seurat_clusters %in% c("16")] <- "Mg"
+x$celltype.l0[x$seurat_clusters %in% c("23", "24")] <- "Endo"
+
+DimPlot(x, group.by="seurat_clusters", label=TRUE) + NoLegend() + NoAxes()
+DimPlot(x, group.by="celltype.l0", label=TRUE) & NoAxes()
+```
+
+```{r fig.width=8, fig.height=2}
+DotPlot(x, "RNA", markers, group.by="celltype.l0") + RotatedAxis()
+```
+
+```{r}
+x$background <- factor(x$background, c("WT", "KO"))
+
+x$group <- paste0(x$background, "_", x$seurat_clusters)
+
+x$label <- paste0(x$celltype.l0, "_", x$seurat_clusters)
+x$label <- factor(x$label, sort(unique(x$label)))
+```
+
+# BLA/CeA
+
+```{r}
+markers <- list(
+  "EN" = c("Slc17a7", "Slc17a6", "Slc17a8"),
+  "BLA" = c("Rspo2", "Ppp1r1b", "Hgf"),
+  "CeA" = c("Scn5a", "Prkcd", "Drd2", "Sst", "Nts", "Tac2", "Crh")
+)
+DotPlot(x, "RNA", markers, group.by="label") + RotatedAxis()
+```
+
+# Export
+
+```{r}
+write_rds(x, here("rna/output/annotated.rds"))
+```
+
+# Session information
+
+```{r}
+sessionInfo()
+```

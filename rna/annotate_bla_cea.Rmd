@@ -1,0 +1,65 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r setup}
+library(here)
+library(tidyverse)
+library(patchwork)
+library(Seurat)
+library(scmisc)
+```
+
+
+# Load data
+
+```{r}
+x <- read_rds(here("rna/output/annotated.rds"))
+x
+```
+
+
+```{r}
+x$label <- factor(x$label, levels=unique(gtools::mixedsort(as.character(x$label))))
+```
+
+```{r}
+cells <- Cells(x)[x$celltype.l0 %in% c("EN", "IN", "CN")]
+```
+
+```{r}
+y <- x[, cells]
+```
+
+# Markers
+
+```{r}
+markers <- list(
+  "BLA" = c("Ppp1r1b", "Rspo2", "Hgf", "Tshz1", "Thy1"),
+  "CeA" = c("Prkcd", "Sst", "Nts", "Tac2", "Crh", "Calcrl"),
+  "Dopamine" = c("Drd1", "Drd2", "Drd3", "Drd4", "Drd5")
+)
+```
+
+```{r}
+DotPlot(y, "RNA", markers, group.by="label") + RotatedAxis()
+```
+
+```{r fig.width=4, fig.height=4}
+DotPlot(y, "RNA", markers, group.by="label", split.by="background", cols=c("blue", "red")) + RotatedAxis()
+```
+
+```{r}
+VlnPlot(y, unlist(markers), group.by="label", stack=TRUE, flip=TRUE) + NoLegend()
+```
+
+```{r fig.width=4, fig.height=4}
+VlnPlot(y, unlist(markers), group.by="label", split.by="background", stack=TRUE, flip=TRUE)
+```
+
+```{r}
+FeaturePlot(x, c("Sema6d", "Plxna4", "Slc17a7", "Slc17a8", "Slc17a6", "Gad1", "Gad2", "Ppp1r1b", "Rspo2", "Drd1", "Drd2", "Drd3"), order=TRUE, max.cutoff="q90") & NoAxes() + NoLegend()
+```
+

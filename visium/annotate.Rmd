@@ -1,0 +1,97 @@
+---
+title: "Annotation of Visium data: mouse brain"
+author: "Diego Diez"
+date: "2022-12-02"
+output: html_notebook
+---
+
+```{r setup}
+library(here)
+library(tidyverse)
+library(patchwork)
+library(Seurat)
+library(scmisc)
+#library(singleCellHaystack)
+#library(ComplexHeatmap)
+
+theme_set(cowplot::theme_cowplot())
+
+set.seed(1)
+```
+
+# Load data
+
+```{r}
+x <- read_rds(here("visium/output/seurat.rds"))
+DefaultAssay(x) <- "Spatial"
+x
+```
+
+```{r}
+y <- sample_cells(x, "seurat_clusters", n_max=50)
+```
+
+# DEG between clusters
+
+```{r}
+deg <- FindAllMarkers(x, verbose=FALSE, max.cells.per.ident=500)
+head(deg)
+```
+
+```{r fig.width=12, fig.height=10}
+plot_volcano(deg, lfc=1, fdr=0.01)
+```
+
+```{r}
+top <- top_deg(deg)
+head(top)
+```
+
+```{r fig.width=6, fig.height=12}
+plot_heatmap(y[top$gene, ], column_split=y$seurat_clusters, top_ann="background", top_ann_col=list("background"=c("WT"="lightgrey", "KO"="black")))
+```
+
+```{r}
+plot_deg_barplot(deg, lfc=.25, fdr=0.05)
+plot_deg_barplot(deg, lfc=1, fdr=0.05)
+```
+
+# Markers
+
+```{r}
+markers <- list(
+  "Glia" = c("Vim", "Atp1a2", "Fam107a", "Slc1a3", "Ptn"),
+  "Neuron" = c("Neurod6", "Slc17a7", "Slc17a6", "Slc17a8"),
+  "Interneuron" = c("Gad1", "Gad2", "Dlx1", "Dlx5"),
+  "OPC" = c("Cspg4"),
+  "Oligo" = c("Olig1", "Olig2"),
+  "Astro" = c("Acsbg1", "Aldh1l1", "Sox9"),
+  "Endo" = c("Flt1"),
+  "SMC" = c("Tagln", "Acta2", "Tpm2"),
+  "Mg" = c("C1qa", "C1qb"),
+  "Other" = c("Pvalb", "Calb2", "Sst", "Vip", "Reln", "Lamp5", "Serpinf1", "Sncg", "Nos1", "Cck", "Htr3a"),
+  "Pro" = c("Mki67", "Top2a"),
+  "RBC" = c("Hba-a1", "Hba-a2")
+)
+```
+
+```{r fig.width=8, fig.height=4}
+DotPlot(x, "Spatial", markers, cluster.idents=TRUE) + RotatedAxis()
+```
+
+```{r}
+VlnPlot(x, c("Gad1", "Gad2", "Slc17a7", "Slc17a6", "Slc17a8", "Cspg4", "Olig1", "Acsbg1", "C1qa", "Flt1"), stack=TRUE, flip=TRUE) + NoLegend()
+```
+
+# Export
+
+```{r}
+write_tsv(deg, here("visium/reports/deg_clusters.txt"))
+```
+
+# Session information
+
+```{r}
+sessionInfo()
+```
+

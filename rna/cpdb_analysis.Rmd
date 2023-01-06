@@ -1,0 +1,255 @@
+---
+title: "Analysis of cellphonedb results"
+author: "Diego Diez"
+date: "2022-11-16"
+output: html_notebook
+---
+
+```{r setup}
+library(here)
+library(tidyverse)
+library(patchwork)
+library(Seurat)
+library(scmisc)
+library(ComplexHeatmap)
+
+
+source(here("func.R"))
+theme_set(cowplot::theme_cowplot())
+
+set.seed(1)
+```
+
+# Original cellphonedb plots
+
+```{r fig.width=4, fig.height=4}
+heatmaps_plot("output/cpdb_data/meta_celltype.l0_WT.tsv", "output/cpdb_celltype.l0_WT/pvalues.txt")
+heatmaps_plot("output/cpdb_data/meta_celltype.l0_KO.tsv", "output/cpdb_celltype.l0_KO/pvalues.txt")
+```
+
+```{r fig.width=4, fig.height=4}
+heatmaps_plot("output/cpdb_data/meta_label_WT.tsv", "output/cpdb_label_WT/pvalues.txt")
+heatmaps_plot("output/cpdb_data/meta_label_KO.tsv", "output/cpdb_label_KO/pvalues.txt")
+```
+
+# Load data
+
+```{r}
+res_WT <- read_cpdb_out(here("rna/output/cpdb_celltype.l0_WT"))
+res_KO <- read_cpdb_out(here("rna/output/cpdb_celltype.l0_KO"))
+
+res_label_WT <- read_cpdb_out(here("rna/output/cpdb_label_WT"))
+res_label_KO <- read_cpdb_out(here("rna/output/cpdb_label_KO"))
+```
+
+# Replicate original plots
+
+```{r fig.width=3, fig.height=3}
+scores_WT <- calculate_cpdb_cellxcell_score(res_WT)
+scores_KO <- calculate_cpdb_cellxcell_score(res_KO)
+scores_diff <- scores_KO-scores_WT
+
+col <- colorRampPalette(c(col1 = "dodgerblue4", col2 = 'peachpuff', col3 = 'deeppink4'))(1000)
+Heatmap(scores_WT, column_title="WT", name="score", col=col)
+Heatmap(scores_KO, column_title="KO", name="score", col=col)
+Heatmap(scores_diff, column_title="KO - WT", name="diff", col=col)
+
+Heatmap(scores_WT, column_title="WT", name="score")
+Heatmap(scores_KO, column_title="KO", name="score")
+Heatmap(scores_diff, column_title="KO - WT", name="diff")
+```
+
+# More resolution
+
+```{r fig.width=3, fig.height=3}
+scores_WT <- calculate_cpdb_cellxcell_score(res_label_WT)
+scores_KO <- calculate_cpdb_cellxcell_score(res_label_KO)
+scores_diff <- scores_KO-scores_WT
+
+Heatmap(scores_WT, column_title="WT", name="score")
+Heatmap(scores_KO, column_title="KO", name="score")
+Heatmap(scores_diff, column_title="KO - WT", name="diff")
+```
+
+```{r fig.width=3, fig.height=3}
+sel <- grep("EN|IN|CN", colnames(scores_WT), value=TRUE, ignore.case=FALSE)
+Heatmap(scores_WT[sel, sel], column_title="WT", name="score")
+Heatmap(scores_KO[sel, sel], column_title="KO", name="score")
+Heatmap(scores_diff[sel, sel], column_title="KO - WT", name="diff")
+```
+
+```{r}
+rowSums(scores_diff[sel, sel] > 0)
+```
+
+```{r}
+scores_diff |> as.tibble(rownames="cell_a") |> 
+  pivot_longer(cols=-("cell_a"), names_to="cell_b", values_to="score") |> 
+  filter(grepl("^EN|IN", cell_a), grepl("^EN|IN", cell_b)) |> 
+  arrange(desc(score))
+```
+
+```{r fig.width=3, fig.height=3}
+Heatmap(scores_diff[sel, sel], cluster_rows=FALSE, cluster_columns=FALSE, name="diff", column_title="KO - WT")
+```
+
+
+```{r}
+m <- scores_diff[sel, sel]
+```
+
+```{r fig.width=5, fig.height=5}
+library(circlize)
+chordDiagram(m,
+             symmetric=TRUE,
+             annotationTrack = c("name", "grid"),
+             transparency = 0.25,
+             directional = 1,
+            # direction.type = "arrows",
+             link.arr.length = 0.6)
+```
+
+```{r}
+lapply(table(sub("_.*", "", colnames(m))), function(n) {})
+```
+
+```{r}
+colnames(m)
+```
+
+
+```{r}
+col <- c("black", RColorBrewer::brewer.pal(8, "Greens"), RColorBrewer::brewer.pal(9, "Blues"))
+names(col) <- colnames(m)
+```
+
+```{r fig.width=4, fig.height=4}
+chordDiagram(m,
+             symmetric=TRUE,
+             annotationTrack = c("name", "grid"),
+             transparency = 0.25,
+             directional = 0,
+            # direction.type = "arrows",
+             link.arr.length = 0.6,
+            #row.col=col,
+            grid.col=col)
+```
+
+
+```{r fig.width=4, fig.height=4.5}
+col_fun <- colorRamp2(quantile(m, probs=c(0, .5, 1)), c("blue", "white", "red"))
+chordDiagram(m,
+  symmetric = TRUE,
+  annotationTrack = c("name", "grid"),
+  transparency = 0.25,
+  directional = 0,
+  link.arr.length = 0.6,
+  grid.col=col,
+  col = col_fun
+)
+```
+
+
+# scmisc plots
+
+```{r fig.width=6, fig.height=6}
+plot_cpdb_cellxpair(res_WT, pval.cutoff=0.05, column_title="WT")
+plot_cpdb_cellxpair(res_KO, pval.cutoff=0.05, column_title="KO")
+```
+
+```{r fig.width=3, fig.height=4}
+cells <- c(
+  grep("^EN.*\\|IN", res_WT$cells, value=TRUE),
+  grep("^IN.*\\|EN", res_WT$cells, value=TRUE)
+)
+#plot_cpdb_cellxpair(res_WT, cells) %v%  
+#plot_cpdb_cellxpair(res_KO, cells)
+plot_cpdb_cellxpair(res_WT, cells, column_title="WT")
+plot_cpdb_cellxpair(res_KO, cells, column_title="KO")
+```
+
+# Compare KO vs. WT: celltype.l0
+
+```{r fig.width=6, fig.height=4}
+plot_cpdb_diff(res_KO, res_WT, column_title="KO - WT", show_row_names=FALSE)
+```
+
+```{r fig.width=3, fig.height=3}
+cells <- c(grep("EN.*\\|IN", res_KO$cells, value=TRUE), grep("IN.*\\|EN", res_KO$cells, value=TRUE))
+plot_cpdb_diff(res_KO, res_WT, column_title="KO - WT (diff > 0.1)", cells=cells, diff=.1)
+```
+
+
+# Compare KO vs. WT: label
+
+```{r}
+plot_cpdb_diff(res_label_KO, res_label_WT, column_title="KO - WT", show_row_names=FALSE, show_column_names=FALSE)
+```
+
+```{r fig.width=12, fig.height=8}
+cells <- c(grep("EN.*\\|IN", res_label_KO$cells, value=TRUE), grep("IN.*\\|EN", res_label_KO$cells, value=TRUE))
+plot_cpdb_diff(res_label_KO, res_label_WT, column_title="KO - WT (diff>0.2)", cells=cells, diff=.2, cluster_columns=TRUE)
+```
+
+# Circular plots
+
+```{r}
+calculate_cpdb_cellxcell_matrix()
+```
+
+
+```{r}
+library("chorddiag")
+```
+
+```{r}
+d <- res_WT$meta[, c("gene_a", "gene_b")]
+d$count <- rowSums(res_WT$m_pval[, c("EN|IN", "IN|EN")] < 0.05)
+d <- d |> filter(count > 0)
+d <- d |> drop_na()
+```
+
+```{r fig.width=5, fig.height=5}
+
+chordDiagram(d, annotationTrack = c("grid"),
+             transparency = 0.25,
+             directional = 1,
+            # direction.type = "arrows",
+             link.arr.length = 0.6)
+```
+
+```{r}
+library(ggraph)
+library(tidygraph)
+g <- as_tbl_graph(d, directed=FALSE)
+```
+
+```{r}
+g
+```
+
+
+```{r}
+ggraph(g, layout = 'linear', circular = TRUE) + 
+  geom_edge_arc(aes(width=count), color="lightgrey") + 
+  geom_node_text(aes(label=name), hjust=1, vjust=0) +
+  scale_edge_width(range=c(1,2))
+```
+
+```{r}
+foo <- calculate_cpdb_diff(res_WT, res_KO)
+```
+
+```{r}
+sel <- rowSums((foo$x$pval < 0.05 | foo$y$pval < 0.05)[, c("EN|IN", "IN|EN")]) > 0
+```
+
+```{r}
+m <- foo$diff[sel, c("EN|IN", "IN|EN")]
+```
+
+
+```{r}
+chordDiagram(as.data.frame(m))
+```
+
