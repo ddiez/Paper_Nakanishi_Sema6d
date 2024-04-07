@@ -117,7 +117,7 @@ plot_coord2(x, expand="background", label=TRUE, size=.1) & NoAxes() + NoLegend()
 ```
 
 ```{r}
-ggsave(here("visium/figures/fig6C.pdf"), width=10, height=5)
+ggsave(here("visium/figures/figS6B.pdf"), width=10, height=5)
 ```
 
 # Background cluster distribution
@@ -130,7 +130,7 @@ ggplot(d, aes(seurat_clusters, fill=background)) +
 ```
 
 ```{r}
-ggsave(here("visium/figures/figS6B.pdf"), width=8, height=3)
+ggsave(here("visium/figures/figS6C.pdf"), width=8, height=3)
 ```
 
 # Sema6d and Plxna4 expression in WT
@@ -140,7 +140,7 @@ SpatialFeaturePlot(x, c("Sema6d", "Plxna4"), images="WT2", pt.size.factor=2)
 ```
 
 ```{r}
-ggsave(here("visium/figures/fig6D.pdf"), width=6, height=3)
+ggsave(here("visium/figures/fig6C.pdf"), width=6, height=3)
 ```
 
 # BLA and CeA
@@ -171,7 +171,7 @@ p1 / p2 / p3
 ```
 
 ```{r}
-ggsave(here("visium/figures/fig6L.pdf"), width=12, height=12)
+ggsave(here("visium/figures/figS7D.pdf"), width=12, height=12)
 ```
 
 # Session information

@@ -1,0 +1,111 @@
+---
+title: "Figures for paper: snRNA-seq"
+author: "Yoshimitsu Nakanishi"
+date: "2023-10-12"
+output: html_document
+---
+
+```{r setup}
+library(here)
+library(tidyverse)
+library(patchwork)
+library(Seurat)
+library(scmisc)
+library(singleCellHaystack)
+library(ComplexHeatmap)
+library(SeuratObject)
+library(ggsignif)
+library(ggpubr)
+
+theme_set(cowplot::theme_cowplot())
+
+set.seed(1)
+```
+
+# Load data
+
+```{r}
+x <- read_rds(here("rna/output/annotated.rds"))
+DefaultAssay(x) <- "RNA"
+x
+```
+
+```{r}
+DimPlot(x, label=TRUE) + NoLegend() + NoAxes()
+DimPlot(x, label=TRUE, group.by="label") + NoAxes() + NoLegend()
+DimPlot(x, label=TRUE, group.by="celltype.l0") + NoAxes()
+```
+
+# Select cluster
+
+```{r}
+x_EN <- x[, x$celltype.l0 %in% c("EN")]
+x_IN <- x[, x$celltype.l0 %in% c("IN")]
+x_EN_IN <- x[, x$celltype.l0 %in% c("EN", "IN")]
+x_partial <- x[, ! x$celltype.l0 %in% c("Endo", "Mg", "Undefined")]
+```
+
+
+
+# Target gene expression
+
+```{r}
+VlnPlot(x_EN_IN, c("Kcnq3"), pt.size = 0, flip=TRUE, split.by="background", group.by="celltype.l0") +
+  stat_compare_means(method = "t.test")
+```
+
+```{r}
+ggsave(here("rna/revise_figures/Kcnq3_EN_IN.pdf"), width=10, height=5)
+```
+
+```{r}
+VlnPlot(x_IN, c("Gad1"), pt.size = 0, flip=TRUE, split.by="background", group.by="celltype.l0") +
+  stat_compare_means(method = "t.test")
+```
+
+```{r}
+ggsave(here("rna/revise_figures/Gad1_IN.pdf"), width=5, height=5)
+```
+
+```{r}
+VlnPlot(x_IN, c("Gad2"), pt.size = 0, flip=TRUE, split.by="background", group.by="celltype.l0") +
+  stat_compare_means(method = "t.test")
+```
+
+```{r}
+ggsave(here("rna/revise_figures/Gad2_IN.pdf"), width=5, height=5)
+```
+
+
+```{r}
+VlnPlot(x_partial, c("Slc6a1"), pt.size = 0, flip=TRUE, split.by="background", group.by="celltype.l0") +
+  stat_compare_means(method = "t.test")
+```
+
+```{r}
+ggsave(here("rna/revise_figures/Slc6a1.pdf"), width=30, height=5)
+```
+
+```{r}
+VlnPlot(x_EN, c("Dlg4"), pt.size = 0, flip=TRUE, split.by="background", group.by="celltype.l0") +
+  stat_compare_means(method = "t.test")
+```
+
+```{r}
+ggsave(here("rna/revise_figures/Dlg4_EN.pdf"), width=5, height=5)
+```
+
+```{r}
+VlnPlot(x_EN, c("Camk2a"), pt.size = 0, flip=TRUE, split.by="background", group.by="celltype.l0") +
+  stat_compare_means(method = "t.test")
+```
+
+```{r}
+ggsave(here("rna/revise_figures/Camk2a_EN.pdf"), width=5, height=5)
+```
+
+# Session information
+
+```{r}
+sessionInfo()
+```
